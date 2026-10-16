@@ -1,0 +1,121 @@
+name: Desktop checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  frontend:
+    name: Frontend tests and production build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: frontend
+    env:
+      CI: "true"
+      NX_DAEMON: "false"
+      NX_NO_CLOUD: "true"
+      VITE_ENVIRONMENT_TYPE: production
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24 and npm cache
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Run frontend unit tests
+        run: npm run test:unit
+
+      - name: Check development and setup scripts
+        run: npm run test:tooling
+
+      - name: Build the production frontend
+        run: npm run build
+
+      - name: Verify the frontend entry point
+        run: test -s apps/artcraft/dist/index.html
+
+      - name: Save frontend assets for the Rust check
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-frontend-dist
+          path: frontend/apps/artcraft/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  macos-rust:
+    name: Check both macOS desktop applications
+    needs: frontend
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      SQLX_OFFLINE: "true"
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Keep the exact frontendDist declared by the Tauri configuration available
+      # to generate_context! without rebuilding the frontend on a second runner.
+      - name: Restore production frontend assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: desktop-frontend-dist
+          path: frontend/apps/artcraft/dist
+
+      - name: Install wreq native prerequisites
+        run: |
+          brew install cmake pkg-config llvm
+          artcraft_llvm_prefix="$(brew --prefix llvm)"
+          printf 'LIBCLANG_PATH=%s/lib\n' "$artcraft_llvm_prefix" >> "$GITHUB_ENV"
+
+      - name: Set up stable Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          env-vars: LIBCLANG_PATH
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Verify the restored frontend entry point
+        run: test -s frontend/apps/artcraft/dist/index.html
+
+      # These are independent applications. Separate invocations keep their
+      # platform-specific dependency features from being unified together.
+      - name: Check the Tauri Rust application
+        run: cargo check --locked -p artcraft
+
+      - name: Check the native Rust application
+        run: cargo check --locked -p artcraft_native

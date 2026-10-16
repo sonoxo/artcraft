@@ -15,7 +15,8 @@ then passes that exact URL to Tauri. HMR shares the frontend port.
 Rust uses native Tauri IPC and does not need a second HTTP port.
 Ctrl-C stops this launcher's frontend, Rust watcher, and desktop app.
 
-Requires Node.js 20+, npm, Rust, cargo-tauri 2, and Tauri platform prerequisites.
+Requires Node.js 20.19+, 22.12+, or 24.x (recommended), npm, Rust,
+cargo-tauri 2, and Tauri platform prerequisites.
 Installs frontend dependencies only when the local Vite installation is missing.
 Run this command instead of running the two legacy dev scripts together.
 HELP
@@ -37,8 +38,7 @@ fi
 
 cd "${frontend_path}"
 if [[ ! -f node_modules/vite/package.json ]]; then
-  # Do not use the legacy install helper: its failure recovery deletes caches.
-  npm install
+  frontend_npm_install
 fi
 
 exec node "${frontend_path}/scripts/unix-dev.mjs"
