@@ -122,6 +122,7 @@ jobs:
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           env-vars: LIBCLANG_PATH
+          cache-on-failure: true
 
       - name: Verify the restored frontend entry point
         run: test -s frontend/apps/artcraft/dist/index.html

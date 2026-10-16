@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Assemble/verify a universal release bundle, then verify the shipped ZIP again.
 set -euo pipefail
+trap 'printf "ERROR: packaging command failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 root_dir="$(cd -- "${script_dir}/../.." && pwd)"
@@ -90,7 +91,7 @@ version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_
 executable_path="$app_path/Contents/MacOS/$executable_name"
 test "$identifier" = "$expected_identifier"
 test -x "$executable_path"
-lipo -verify_arch arm64 x86_64 "$executable_path"
+lipo "$executable_path" -verify_arch arm64 x86_64
 file "$executable_path" | tee "$output_dir/architectures.txt"
 otool -L "$executable_path" > "$output_dir/linked-libraries.txt"
 if grep -Eq '^[[:space:]]+/(opt/homebrew|usr/local|Users/runner)/' "$output_dir/linked-libraries.txt"; then
@@ -113,7 +114,7 @@ unpack_dir="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/artcraft-package.XXXXXX
 ditto -x -k "$output_dir/$archive_name" "$unpack_dir"
 unpacked_app="$unpack_dir/${product_name}.app"
 test -x "$unpacked_app/Contents/MacOS/$executable_name"
-lipo -verify_arch arm64 x86_64 "$unpacked_app/Contents/MacOS/$executable_name"
+lipo "$unpacked_app/Contents/MacOS/$executable_name" -verify_arch arm64 x86_64
 codesign --verify --deep --strict --verbose=2 "$unpacked_app"
 for notice in LICENSE-MIT LICENSE-APACHE NOTICE; do
   cmp "${root_dir}/$notice" "$unpacked_app/Contents/Resources/licenses/$notice"
