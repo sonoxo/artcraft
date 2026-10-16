@@ -60,7 +60,7 @@ jobs:
       - name: Verify the frontend entry point
         run: test -s apps/artcraft/dist/index.html
 
-      - name: Save frontend assets for the Rust check
+      - name: Save frontend assets for desktop packaging
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-frontend-dist
@@ -69,15 +69,17 @@ jobs:
           retention-days: 1
 
   macos-rust:
-    name: Check both macOS desktop applications
+    name: Build and launch both macOS desktop applications
     needs: frontend
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       SQLX_OFFLINE: "true"
       CARGO_TERM_COLOR: always
       CARGO_INCREMENTAL: "0"
       HOMEBREW_NO_AUTO_UPDATE: "1"
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+      ARTCRAFT_SOURCE_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -93,29 +95,90 @@ jobs:
           path: frontend/apps/artcraft/dist
 
       - name: Install wreq native prerequisites
+        id: native-prerequisites
         run: |
           brew install cmake pkg-config llvm
           artcraft_llvm_prefix="$(brew --prefix llvm)"
           printf 'LIBCLANG_PATH=%s/lib\n' "$artcraft_llvm_prefix" >> "$GITHUB_ENV"
 
       - name: Set up stable Rust
+        id: rust-toolchain
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Set up Node.js for the prebuilt Tauri CLI
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: Install the prebuilt Tauri CLI
+        run: |
+          npm install --prefix "$RUNNER_TEMP/artcraft-tauri-cli" --no-audit --no-fund --package-lock=false @tauri-apps/cli@2.11.0
+          printf '%s/node_modules/.bin\n' "$RUNNER_TEMP/artcraft-tauri-cli" >> "$GITHUB_PATH"
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           env-vars: LIBCLANG_PATH
-          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Verify the restored frontend entry point
         run: test -s frontend/apps/artcraft/dist/index.html
 
-      # These are independent applications. Separate invocations keep their
-      # platform-specific dependency features from being unified together.
-      - name: Check the Tauri Rust application
-        run: cargo check --locked -p artcraft
+      # The standard macos-15 runner builds both slices; it does not require the
+      # paid xlarge runner or the Apple signing secrets used by the release job.
+      # The overlay skips only the already-completed frontend build and applies
+      # an ad-hoc signature. The product identifier and version remain unchanged.
+      - name: Build the universal ArtCraft application
+        working-directory: crates/desktop/artcraft
+        run: |
+          tauri build --target universal-apple-darwin --bundles app \
+            --features tauri/custom-protocol \
+            --config '{"build":{"beforeBuildCommand":""},"bundle":{"macOS":{"signingIdentity":"-","minimumSystemVersion":"11.0"}}}' \
+            -- --locked
 
-      - name: Check the native Rust application
-        run: cargo check --locked -p artcraft_native
+      - name: Package and verify ArtCraft
+        id: package-artcraft
+        run: bash script/artcraft/macos_package.sh tauri
+
+      - name: Launch the packaged ArtCraft application
+        run: bash script/artcraft/macos_launch_smoke.sh "${{ steps.package-artcraft.outputs.app-path }}" dist/macos-artcraft/launch
+
+      - name: Upload the ArtCraft application and launch evidence
+        if: ${{ always() && steps.package-artcraft.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ArtCraft-macos-universal
+          path: dist/macos-artcraft
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+      # Separate invocations prevent the independent applications' wry/Tauri
+      # platform features from being unified. Both are real release executables.
+      - name: Build both architectures of ArtCraft Native
+        id: build-native
+        if: ${{ !cancelled() && steps.native-prerequisites.outcome == 'success' && steps.rust-toolchain.outcome == 'success' }}
+        run: |
+          cargo build --release --locked -p artcraft_native --target aarch64-apple-darwin
+          cargo build --release --locked -p artcraft_native --target x86_64-apple-darwin
+
+      - name: Package and verify ArtCraft Native
+        id: package-native
+        if: ${{ !cancelled() && steps.build-native.outcome == 'success' }}
+        run: bash script/artcraft/macos_package.sh native
+
+      - name: Launch the packaged ArtCraft Native application
+        if: ${{ !cancelled() && steps.package-native.outcome == 'success' }}
+        run: bash script/artcraft/macos_launch_smoke.sh "${{ steps.package-native.outputs.app-path }}" dist/macos-artcraft-native/launch native
+
+      - name: Upload ArtCraft Native and launch evidence
+        if: ${{ always() && steps.package-native.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ArtCraft-Native-macos-universal
+          path: dist/macos-artcraft-native
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
