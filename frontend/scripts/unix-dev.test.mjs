@@ -81,14 +81,16 @@ test("concurrent launchers use different ports without replacing either frontend
 });
 
 test("a React source edit sends HMR on the selected port without restarting Rust", { timeout: 40000 }, async (t) => {
-  const run = await fixture(t);
-  const record = await run.record();
-  const url = overrides(record).build.devUrl;
+  // Include the probe in Vite's initial watch tree. An HTTP transform does not
+  // wait for chokidar to register a directory created after the server starts.
   const probeDir = await mkdtemp(path.join(rootDir, "frontend/apps/artcraft/app/src/dev-probe-"));
   t.after(() => rm(probeDir, { recursive: true, force: true }));
   const probe = path.join(probeDir, "Probe.tsx");
   const moduleUrl = `/src/${path.basename(probeDir)}/Probe.tsx`;
   await writeFile(probe, "export default function Probe() { return <div>before</div>; }\n");
+  const run = await fixture(t, { DEBUG: [process.env.DEBUG, "vite:hmr", "vite:deps"].filter(Boolean).join(",") });
+  const record = await run.record();
+  const url = overrides(record).build.devUrl;
   const code = await (await fetch(`${url}${moduleUrl}`)).text();
   assert.match(code, /\$RefreshReg\$/);
 
@@ -99,8 +101,13 @@ test("a React source edit sends HMR on the selected port without restarting Rust
   const messages = [];
   ws.on("message", (data) => messages.push(JSON.parse(data.toString())));
   await once(ws, "open");
-  await writeFile(probe, "export default function Probe() { return <div>after</div>; }\n");
-  await until(() => messages.some((m) => m.type === "update" && m.updates.some((u) => u.path === moduleUrl)));
+  try {
+    await until(() => messages.some((m) => m.type === "connected"));
+    await writeFile(probe, "export default function Probe() { return <div>after</div>; }\n");
+    await until(() => messages.some((m) => m.type === "update" && m.updates.some((u) => u.path === moduleUrl)));
+  } catch (error) {
+    throw new Error(`${error.message}\nHMR messages: ${JSON.stringify(messages)}\nLauncher output:\n${run.output()}`, { cause: error });
+  }
   assert.match(await (await fetch(`${url}${moduleUrl}`)).text(), /after/);
   assert.ok(alive(record.pid), "JS edits must leave the Rust watcher running");
   assert.equal((await run.record()).pid, record.pid);

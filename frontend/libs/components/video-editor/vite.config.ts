@@ -63,6 +63,11 @@ export default defineConfig(() => ({
     watch: false,
     globals: true,
     environment: 'jsdom',
+    // These tests execute in Node with jsdom globals. SSR transforms make the
+    // WASM plugin embed the real binary instead of fetching a Vite /@fs URL.
+    testTransformMode: {
+      ssr: ['**/*'],
+    },
     include: ['{src,tests}/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     reporters: ['default'],
     // opencut-wasm is published as ESM with a .wasm asset; vitest's default

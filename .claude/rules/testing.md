@@ -1,31 +1,48 @@
 # Testing
 
-## Database Fixture Tests
+## Desktop Database and Test Fixtures
 
-- Live in-crate (e.g. `storyteller-web`'s omni_gen video pricing tests) and
-  use the `mysql_testing` crate (`crates/schema/database/mysql_testing`) for
-  guarded pools, schema setup, and account/session/wallet fixtures
-- They RUN BY DEFAULT with `cargo test -p storyteller-web` and from the IDE
-  (requires a local MySQL with an `artcraft_test` database). Machines/CI
-  without MySQL skip them via the off switch:
-  `SQLX_OFFLINE=true cargo test -p storyteller-web --features skip_database_tests`
-- They connect ONLY via `ARTCRAFT_TEST_DATABASE_URL` (default
-  `mysql://root:@localhost:3306/artcraft_test`); the guard panics on any
-  database whose name lacks "test", on `storyteller`/`artcraft`, and on
-  cloud hosts — see `mysql_testing/README.md`
-- Database tests run in PARALLEL: each test creates its own users, wallets,
-  and rows; schema setup single-flights via a MySQL named lock. Only tests
-  mutating shared/global state take
-  `mysql_testing::serial::acquire_serial_test_lock().await`
-- External providers must never be called: the harness stubs Kinovi with an
-  in-process HTTP server via `KINOVI_CUSTOM_API_HOST`/`KINOVI_CUSTOM_CDN_HOST`
+- This workspace contains desktop applications and shared client crates. Server
+  database fixtures and backend tests belong to the separate `artcraft-services`
+  repository; no MySQL server is required for desktop builds or fixture tests.
+- The `sqlite_tasks` crate uses embedded SQLite. Keep its migrations in
+  `_database/sql/artcraft_migrations/` and compile-time query metadata in `.sqlx/`.
+- Set `SQLX_OFFLINE=true` when compiling or testing `artcraft`, `sqlite_tasks`, or
+  other crates that use the desktop SQLx query macros. This uses the checked-in
+  metadata instead of requiring a development database at compile time.
+- Runtime database tests should create a temporary SQLite database with the
+  required migrations. Never use the real `~/Artcraft/state/` task database.
+- HTTP tests should use deterministic response fixtures or an in-process loopback
+  server. Use temporary cookie stores and credentials; do not load a developer's
+  real session or provider keys.
+- Keep tests that contact hosted APIs or submit paid provider jobs marked
+  `#[ignore]`. Routine test runs and CI must not enable `--ignored` or
+  `--include-ignored`. A live-provider check is a separate, explicitly requested
+  manual operation.
 
 ## Running Tests
 
-- Most crates: `cargo test -p {crate_name}`
+- Run the tests for the affected crate or feature, after checking that they use
+  local fixtures: `cargo test -p {crate_name}`
 - Crates using SQLx offline mode: `SQLX_OFFLINE=true cargo test -p {crate_name}`
-- The `storyteller-web` and `mysql_queries` crates require `SQLX_OFFLINE=true` for compilation
 - Use `cargo check -p {crate_name}` for fast compilation checks without running tests
+- Native login regression fixtures:
+  `SQLX_OFFLINE=true cargo test -p artcraft --lib login_bridge_tests`
+- Desktop request identity and HTTP bridge fixtures:
+  `cargo test -p artcraft_client_identity -p tauri-plugin-http --lib`
+- Current frontend app and shared-library tests:
+  `npm --prefix frontend run test:unit`
+- On macOS or Linux, run frontend tests and all setup/launcher fixtures with
+  `npm --prefix frontend test`. See `frontend/README.md` for test scope and the
+  separate legacy Jest suite, whose runner is not installed and which is not
+  covered by this command.
+- Combined Unix launcher fixtures, after installing frontend dependencies:
+  `node --test frontend/scripts/unix-dev.test.mjs`
+- Cargo's `--offline` option only disables dependency downloads; it does not
+  prevent test code from making HTTP requests. Use it when dependencies are
+  already cached, and keep the fixture-only requirements above.
+- See `docs/website-login.md` and `docs/desktop-session-regression.md` for the
+  corresponding frontend tests and the separate native acceptance checks.
 
 ## Test Patterns
 
@@ -69,5 +86,6 @@ constants first, then tests, then helpers at the end of that sub-module.
 
 ## What Not to Test
 
-- Don't add integration tests that require a running database unless explicitly asked
+- Don't add integration tests that require a separate database server unless explicitly asked
+- Don't make routine tests depend on a hosted backend, provider account, credits, or external network access
 - Don't add tests for simple struct construction or trivial getters

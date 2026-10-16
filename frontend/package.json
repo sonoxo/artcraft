@@ -3,10 +3,17 @@
   "version": "0.0.0",
   "license": "MIT OR Apache-2.0",
   "scripts": {
+    "build": "nx run artcraft:build",
+    "test": "npm run test:unit && npm run test:tooling",
+    "test:unit": "vitest run --maxWorkers=2",
+    "test:tooling": "node --test ../script/artcraft/*.test.mjs scripts/unix-dev.test.mjs",
     "test:desktop-session": "node tools/testing/desktop-session.mjs",
     "perf:desktop": "node tools/performance/run.mjs"
   },
   "private": true,
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || ^24.0.0"
+  },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",

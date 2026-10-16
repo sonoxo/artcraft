@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # This works on Linux and MacOS to launch the Rust dev server
 
-set -euxo pipefail
+set -euo pipefail
 
 echo "Running Artcraft Rust in Dev Mode..."
 echo ""
@@ -9,7 +9,7 @@ echo ""
 echo "You'll need to launch the frontend dev server as a second script!"
 echo ""
 
-root_dir=$(pwd)
+root_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 frontend_path="${root_dir}/frontend"
 rust_crate_path="${root_dir}/crates/desktop/artcraft"
 
@@ -38,7 +38,7 @@ sqlx_migrate() {
 
 sqlx_offline() {
   echo "SQLx offline..."
-  export SQLX_OFFLINE=true
+  export SQLX_OFFLINE="${SQLX_OFFLINE-true}"
 }
 
 # NB: Switch this for actively developing queries.
@@ -47,13 +47,14 @@ sqlx_offline
 
 # Issue with Linux performance
 # https://github.com/tauri-apps/tauri/issues/13498
-export WEBKIT_DISABLE_DMABUF_RENDERER=1
-export WEBKIT_DISABLE_COMPOSITING_MODE=1
+export WEBKIT_DISABLE_DMABUF_RENDERER="${WEBKIT_DISABLE_DMABUF_RENDERER-1}"
+export WEBKIT_DISABLE_COMPOSITING_MODE="${WEBKIT_DISABLE_COMPOSITING_MODE-1}"
 
 echo "Build and run..."
-RUSTFLAGS="-Awarnings" cargo tauri dev \
+cd "${root_dir}"
+RUSTFLAGS="${RUSTFLAGS--Awarnings}" exec cargo tauri dev \
   --verbose \
   --no-dev-server \
   --no-dev-server-wait \
   --no-watch \
-  --config "${config_path}"
+  --config "${config_path}" "$@"

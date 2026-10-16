@@ -130,6 +130,20 @@ Additional provider integrations are planned for Kling, Google, Runway, and Luma
 - [Latest builds on GitHub](https://github.com/storytold/artcraft/releases)
 - [Build from source](./_docs/dev_setup.md), including Linux
 
+## Fork setup
+
+On macOS, install Xcode Command Line Tools and Homebrew, then run this fork's
+setup helper from the repository root:
+
+```bash
+./script/artcraft/macos_setup.sh --run
+```
+
+Use `--check` to inspect prerequisites without installing anything. See the
+[development setup guide](./_docs/dev_setup.md) for manual setup, Linux and
+Windows instructions, build checks, and the hosted API/provider accounts needed
+for generation.
+
 ## Documentation
 
 - [Development setup](./_docs/dev_setup.md)

@@ -1,18 +1,135 @@
-Dev Setup
-=========
+# Development setup
 
-# ArtCraft 
+ArtCraft's main desktop app uses Rust, Tauri, and a React frontend. The workspace
+also contains the [native egui app](../artcraft-native/README.md). Backend services
+and website builds live in the separate `artcraft-services` repository.
 
-ArtCraft is a Rust / Tauri app.
+Run the commands below from the repository root unless a different directory is
+specified.
 
-To set up the ArtCraft development environment,  install the following:
+## macOS quick start for this fork
 
-1. [Install Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html).
-2. [Install npm](https://nodejs.org/en/download) or [nvm](https://github.com/nvm-sh/nvm). (Node version `v24.13.0` works at time of writing.) 
-3. The frontend's Nx and Vite dependencies are installed locally with npm; a global Nx installation is not required for the combined Unix launcher.
-4. [Install Tauri CLI](https://v2.tauri.app/reference/cli/). (Version `tauri-cli 2.10.0` works at time of writing.)
+Install [Xcode Command Line Tools](https://v2.tauri.app/start/prerequisites/#macos)
+and [Homebrew](https://brew.sh/) first. For the command-line tools, run
+`xcode-select --install` and finish Apple's installer. Then:
 
-**Mac and Linux Development** 
+```bash
+# Inspect prerequisites without installing anything
+./script/artcraft/macos_setup.sh --check
+
+# Install missing prerequisites, install frontend dependencies, and launch
+./script/artcraft/macos_setup.sh --run
+```
+
+Run `./script/artcraft/macos_setup.sh` without arguments to set up dependencies
+without launching. The helper installs missing CMake, pkg-config, and LLVM
+formulas through Homebrew. It uses Homebrew's `node@24` when the current Node
+version is unsupported, and `rustup` when a working Rust toolchain is missing.
+It ensures Tauri CLI 2 is available, runs `npm ci` in `frontend/`, and checks the
+result with the doctor. `--run` then starts the combined development launcher.
+
+Existing supported toolchains are reused. LLVM's executable path and an unset
+`LIBCLANG_PATH` are configured for the helper process; the helper does not edit
+shell profiles. If Xcode Command Line Tools or Homebrew is absent, it explains
+how to install them before continuing. Account setup and generation access are
+covered under [Backend and provider access](#backend-and-provider-access).
+
+## Prerequisites for manual setup
+
+Install the following before building the Tauri desktop app:
+
+1. [Rust](https://doc.rust-lang.org/cargo/getting-started/installation.html), using
+   the latest stable toolchain. The workspace includes Rust 2024-edition crates.
+2. [Node.js](https://nodejs.org/en/download) and npm. **Node 24.x is recommended**.
+   Nx 21 also supports **22.12+ within 22.x** and **20.19+ within 20.x**, as listed
+   in the [Nx compatibility matrix](https://21.nx.dev/docs/reference/nodejs-typescript-compatibility).
+3. Git, needed by the checkout and Git-hosted dependencies.
+4. [Tauri CLI 2](https://v2.tauri.app/reference/cli/):
+
+   ```bash
+   cargo install tauri-cli --version '^2' --locked
+   ```
+
+Nx, Vite, and Vitest are installed with the frontend dependencies. A global Nx
+installation is not required. Install the locked frontend dependencies with:
+
+```bash
+npm --prefix frontend ci
+```
+
+### macOS native dependencies
+
+Use Xcode Command Line Tools or a configured Xcode installation. The HTTP client
+dependencies also need CMake, pkg-config, and LLVM/libclang; with Homebrew:
+
+```bash
+brew install cmake pkg-config llvm
+```
+
+If a direct Cargo invocation reports that bindgen cannot find libclang, make the
+Homebrew LLVM library directory available in that terminal:
+
+```bash
+export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
+```
+
+Keep an existing custom `LIBCLANG_PATH` if it already points to a working
+installation. The macOS setup helper handles this for its own build/run process.
+
+### Linux native dependencies
+
+Install the [Tauri system prerequisites](https://v2.tauri.app/start/prerequisites/#linux)
+for your distribution, plus the CMake/LLVM/libclang toolchain used by the HTTP
+clients. On Debian or Ubuntu with WebKitGTK 4.1 packages available:
+
+```bash
+sudo apt update
+sudo apt install build-essential curl wget file git cmake pkg-config \
+  clang llvm libclang-dev perl libssl-dev libgtk-3-dev \
+  libwebkit2gtk-4.1-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev \
+  libasound2-dev
+```
+
+The alternative native egui app uses `wry` for its Midjourney login window, so it
+also needs [WebKitGTK/GTK](https://github.com/tauri-apps/wry#platform-considerations).
+Its audio playback needs ALSA development headers (`libasound2-dev` above); see
+[Rodio's Linux dependencies](https://github.com/RustAudio/rodio#dependencies-linux-only).
+FFmpeg on `PATH` enables its in-app video playback; otherwise videos open in the
+system player. A desktop display session and working graphics drivers are needed
+to launch either app.
+
+### Windows native dependencies
+
+Install the [Tauri Windows prerequisites](https://v2.tauri.app/start/prerequisites/#windows),
+including the Microsoft C++ Build Tools and WebView2. The workspace's `wreq`
+dependencies also require CMake, Perl, pkg-config, LLVM, and NASM; see the native
+prerequisite notes in [Cargo.toml](../Cargo.toml). Use the PowerShell launchers
+below after installing the Rust and frontend tools.
+
+## Check the environment
+
+The doctor inspects the current environment without installing dependencies or
+starting the app:
+
+```bash
+node script/artcraft/doctor.mjs
+node script/artcraft/doctor.mjs --json
+node script/artcraft/doctor.mjs --frontend-only
+```
+
+The frontend check covers Node/npm, Git, lockfiles, and the local Nx/Vite/Vitest
+installation. The full check also covers Rust, Tauri CLI 2, native build tools,
+libclang, and platform libraries. FFmpeg is optional. `--json` produces a
+machine-readable report. A successful prerequisite check does not establish that
+a native build, login, or provider generation has succeeded.
+
+The libclang check accepts `LIBCLANG_PATH` as a library file or its containing
+directory, including versioned library names. If that override is present but
+empty or invalid, unset it or point it to a working installation. Without an
+override, the doctor also checks LLVM's library directory, using
+`LLVM_CONFIG_PATH` when provided, and common platform locations.
+
+## Mac and Linux development
 
 ```bash
 # Start the frontend and Rust/Tauri together in one terminal
@@ -24,7 +141,8 @@ ARTCRAFT_DEV_PORT=6200 ./script/artcraft/unix_dev.sh
 
 Use the combined launcher instead of starting the two legacy dev scripts. It
 works from any working directory when invoked by its path and installs frontend
-dependencies if the local Vite installation is missing. Node.js 20+ is required.
+dependencies if the local Vite installation is missing. Use one of the supported
+Node versions listed above.
 
 The launcher binds Vite to `127.0.0.1`, starting at port **5193** and trying
 successive ports until one is available. It leaves existing listeners alone.
@@ -70,7 +188,7 @@ the launcher, wait for the desktop window, make a Rust source edit, and check fo
 a rebuild/restart in the same terminal. Frontend edits should update the webview
 without restarting the Rust process.
 
-**Windows Development**
+## Windows development
 
 ```powershell
 # Run the frontend dev server
@@ -80,7 +198,89 @@ without restarting the Rust process.
 .\script\artcraft\windows_rust_dev.ps1
 ```
 
-Backend services and website builds live in the separate `artcraft-services` repository.
-This repository retains the desktop task database in
-`_database/sql/artcraft_migrations/` and its SQLite query cache in `.sqlx/`.
-Use `SQLX_OFFLINE=true cargo check -p artcraft` to check Rust without a database server.
+## Build and validate
+
+Build the frontend and run the supported tests without compiling Rust:
+
+```bash
+npm --prefix frontend run build
+npm --prefix frontend run test:unit
+
+# macOS or Linux: unit tests plus setup and launcher fixtures
+npm --prefix frontend test
+```
+
+See the [frontend test commands](../frontend/README.md#tests) for targeted runs
+and the separate, unmigrated legacy Jest suite.
+
+The Tauri app uses an embedded SQLite task database. Its migrations are in
+`_database/sql/artcraft_migrations/` and its compile-time query cache is in
+`.sqlx/`. No database server is needed to build the desktop app:
+
+```bash
+SQLX_OFFLINE=true cargo check -p artcraft
+
+# Build the production frontend and desktop bundle
+./script/artcraft/unix_build.sh
+```
+
+The production script is for macOS and Linux. Windows uses
+`script/artcraft/windows_build.ps1`. Distribution signing and notarization
+require the appropriate release credentials; local setup does not supply them.
+
+To build and run the alternative egui desktop app:
+
+```bash
+cargo run -p artcraft_native --release
+```
+
+See its [README](../artcraft-native/README.md) for feature coverage, account
+storage, diagnostics, and tests. The workspace defaults to the Tauri app, so
+the `-p artcraft_native` package selector is required.
+
+For changes to desktop authentication or request identity, run the existing
+local regression fixtures:
+
+```bash
+cargo test -p artcraft_client_identity -p tauri-plugin-http --lib
+SQLX_OFFLINE=true cargo test -p artcraft --lib login_bridge_tests
+```
+
+Use [website-login tests](../docs/website-login.md) and
+[desktop session regression checks](../docs/desktop-session-regression.md) for
+the related frontend and native acceptance checks. Keep live-provider tests
+ignored during routine validation. `SQLX_OFFLINE` controls SQLx query compilation;
+Cargo's optional `--offline` flag controls dependency downloads. Neither option
+blocks network requests made by running application or test code.
+
+## Backend and provider access
+
+The default desktop API is `https://api.storyteller.ai`. Sign in to ArtCraft for
+account-backed library and generation features. Connected providers may require
+their own login, API key, subscription, or credits. Building this source does not
+provision hosted services, include model weights, or grant model access.
+
+The app creates its local data under `~/Artcraft/`, including settings,
+credentials, and task state. The Tauri task database is created and migrated
+automatically. Configure provider accounts through the app; credentials do not
+belong in the checkout or in build reports.
+
+To use a separately running local backend, set
+`~/Artcraft/settings/env_configs.json`:
+
+```json
+{"storyteller_host":"localhost","storyteller_port":12345}
+```
+
+Local website sign-in also requires the services webapp at
+`http://localhost:4201/login/desktop`, using `USE_LOCAL_API=1`, and the matching
+backend with its migrations applied. Those services are in `artcraft-services`.
+See [website login and API environment](../docs/website-login.md#api-environment)
+for the full flow. Use `"storyteller_host":"production"` or omit the override to
+use production, then restart the app.
+
+The desktop declares the origin `https://desktop.getartcraft.com` to the hosted
+API. Its server allowlist must match; see the
+[desktop origin rollout notes](../docs/desktop-session-regression.md#dedicated-desktop-origin-and-rollout)
+when coordinating client and service changes. Local build checks cannot verify
+the deployed service configuration or an authenticated generation flow.
