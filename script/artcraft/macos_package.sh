@@ -66,6 +66,20 @@ with (app_path / "Contents/Info.plist").open("wb") as output:
         "NSHighResolutionCapable": True,
     }, output)
 PY
+fi
+
+# Keep required source and bundled-component notices inside the distributable.
+# Resource additions must precede the final signature and ZIP verification.
+license_dir="$app_path/Contents/Resources/licenses"
+mkdir -p "$license_dir"
+cp "${root_dir}/LICENSE-MIT" "${root_dir}/LICENSE-APACHE" "${root_dir}/NOTICE" "$license_dir/"
+if [[ "$variant" == tauri ]]; then
+  mkdir -p "$license_dir/tauri-plugin-http"
+  cp "${root_dir}/crates/vendor/tauri-plugin-http/"LICENSE* "$license_dir/tauri-plugin-http/"
+  codesign --force --sign - --preserve-metadata=identifier,entitlements,requirements,flags "$app_path"
+else
+  mkdir -p "$license_dir/fonts"
+  cp "${root_dir}/artcraft-native/assets/fonts/"OFL-*.txt "$license_dir/fonts/"
   codesign --force --sign - "$app_path"
 fi
 
@@ -101,6 +115,9 @@ unpacked_app="$unpack_dir/${product_name}.app"
 test -x "$unpacked_app/Contents/MacOS/$executable_name"
 lipo -verify_arch arm64 x86_64 "$unpacked_app/Contents/MacOS/$executable_name"
 codesign --verify --deep --strict --verbose=2 "$unpacked_app"
+for notice in LICENSE-MIT LICENSE-APACHE NOTICE; do
+  cmp "${root_dir}/$notice" "$unpacked_app/Contents/Resources/licenses/$notice"
+done
 
 python3 - "$root_dir" "$app_path" "$output_dir" "$archive_name" "$variant" <<'PY'
 import json
@@ -130,6 +147,7 @@ metadata = {
     "build_tree": build_tree,
     "workflow_run": f'https://github.com/{os.environ.get("GITHUB_REPOSITORY", "sonoxo/artcraft")}/actions/runs/{os.environ.get("GITHUB_RUN_ID", "local")}',
     "archive": archive_name,
+    "license_directory": "Contents/Resources/licenses",
 }
 (output_dir / "build-info.json").write_text(json.dumps(metadata, indent=2) + "\n")
 native_note = "\nArtCraft Native uses an optional external FFmpeg installation for in-app video playback; otherwise it opens video in the system player.\n" if variant == "native" else ""
@@ -149,6 +167,7 @@ Sign-in and generation use the existing ArtCraft/provider services and require y
 VERIFY
 Run `shasum -a 256 -c SHA256SUMS` in this folder to verify the ZIP.
 build-info.json records source/build commits, architecture, and signing status.
+The application's Contents/Resources/licenses folder contains source and bundled-component notices.
 launch/ contains process/window observations and any available screenshots.
 A launch smoke check verifies startup and an application window; it does not verify every workflow or authenticated generation.
 
